@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<section name="Workbench">
+	<item key="hasShownOverlayPopupBefore" value="true"/>
+	<section name="java.lang.Class">
+		<list key="findhistory">
+			<item value="forward"/>
+			<item value="update"/>
+			<item value="updatePingLed"/>
+			<item value="aclmessage"/>
+		</list>
+	</section>
+</section>

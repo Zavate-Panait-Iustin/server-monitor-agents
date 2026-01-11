@@ -1,0 +1,22 @@
+package util;
+
+public class MessageUtils {
+
+    // Creează mesaj standardizat
+    public static String buildMetricsMessage(
+            String serverName,
+            double cpu,
+            double ram,
+            int ping) {
+
+        return serverName + ";" +
+                String.format("%.2f", cpu) + ";" +
+                String.format("%.2f", ram) + ";" +
+                ping;
+    }
+
+    // Parsează mesajul primit
+    public static String[] parseMetricsMessage(String message) {
+        return message.split(";");
+    }
+}

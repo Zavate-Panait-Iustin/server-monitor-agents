@@ -1,0 +1,184 @@
+package agents;
+
+import jade.core.Agent;
+import jade.lang.acl.ACLMessage;
+import jade.core.behaviours.TickerBehaviour;
+
+import javax.swing.*;
+import java.awt.*;
+import java.net.InetAddress;
+
+import com.sun.jna.Library;
+import com.sun.jna.Native;
+import com.sun.jna.Pointer;
+
+import oshi.SystemInfo;
+import oshi.hardware.CentralProcessor;
+import oshi.hardware.GlobalMemory;
+import oshi.hardware.HardwareAbstractionLayer;
+import oshi.hardware.Sensors;
+
+public class ServerAgent extends Agent {
+
+    // ----------------- Variabile de instanță -----------------
+    private SystemInfo si;
+    private HardwareAbstractionLayer hal;
+    private CentralProcessor cpu;
+    private GlobalMemory memory;
+    private Sensors sensors;
+    private long[] prevTicks;
+
+    private boolean paused = false;
+
+    private JProgressBar cpuBar;
+    private JLabel cpuTempLabel;
+    private JProgressBar ramBar;
+    private JLabel gpuUsageLabel;
+    private JLabel gpuTempLabel;
+    private JLabel pingLabel;
+
+    // Metrici
+    private double cpuValue = 0;
+    private double ramValue = 0;
+    private double cpuTempValue = 0;
+    private double gpuLoadValue = 0;
+    private double gpuTempValue = 0;
+    private int pingValue = 0;
+
+    // ----------------- JNA Interface pentru OHM -----------------
+    public interface OHMLib extends Library {
+        OHMLib INSTANCE = Native.load("OpenHardwareMonitorLib", OHMLib.class);
+
+        double GetCpuTemp();      // metoda definită în DLL OHM
+        double GetGpuTemp();      // metoda definită în DLL OHM
+        double GetGpuLoad();      // metoda definită în DLL OHM
+    }
+
+    @Override
+    protected void setup() {
+        System.out.println(getLocalName() + " pornit.");
+
+        si = new SystemInfo();
+        hal = si.getHardware();
+        cpu = hal.getProcessor();
+        memory = hal.getMemory();
+        sensors = hal.getSensors();
+        prevTicks = cpu.getSystemCpuLoadTicks();
+
+        SwingUtilities.invokeLater(this::createGUI);
+
+        addBehaviour(new TickerBehaviour(this, 2000) {
+            @Override
+            protected void onTick() {
+                if (!paused) {
+                    updateMetrics();
+                    sendValuesToMonitor();
+                }
+            }
+        });
+    }
+
+    // ----------------- Actualizare metrici -----------------
+    private void updateMetrics() {
+        // CPU
+        cpuValue = cpu.getSystemCpuLoadBetweenTicks(prevTicks) * 100;
+        prevTicks = cpu.getSystemCpuLoadTicks();
+
+        // RAM
+        long totalMem = memory.getTotal();
+        long availableMem = memory.getAvailable();
+        ramValue = ((double)(totalMem - availableMem) / totalMem) * 100;
+
+        // CPU temp OSHI
+        cpuTempValue = sensors.getCpuTemperature();
+
+        // GPU + CPU temp OHM prin JNA
+        try {
+            gpuLoadValue = OHMLib.INSTANCE.GetGpuLoad();
+            gpuTempValue = OHMLib.INSTANCE.GetGpuTemp();
+            cpuTempValue = OHMLib.INSTANCE.GetCpuTemp(); // poate înlocui OSHI dacă vrei valori reale
+        } catch (UnsatisfiedLinkError e) {
+            gpuLoadValue = 0;
+            gpuTempValue = 0;
+        }
+
+        // Ping
+        try {
+            InetAddress addr = InetAddress.getByName("127.0.0.1");
+            long start = System.currentTimeMillis();
+            addr.isReachable(1000);
+            long end = System.currentTimeMillis();
+            pingValue = (int)(end - start);
+        } catch (Exception e) {
+            pingValue = -1;
+        }
+
+        // Actualizare GUI
+        SwingUtilities.invokeLater(() -> {
+            cpuBar.setValue((int) cpuValue);
+            cpuBar.setString(String.format("%.2f%%", cpuValue));
+
+            ramBar.setValue((int) ramValue);
+            ramBar.setString(String.format("%.2f%%", ramValue));
+
+            cpuTempLabel.setText(String.format("CPU Temp: %.1f°C", cpuTempValue));
+            gpuUsageLabel.setText(String.format("GPU Usage: %.2f%%", gpuLoadValue));
+            gpuTempLabel.setText(String.format("GPU Temp: %.1f°C", gpuTempValue));
+            pingLabel.setText("Ping: " + pingValue + " ms");
+        });
+    }
+
+    // ----------------- Creare GUI -----------------
+    private void createGUI() {
+        JFrame frame = new JFrame(getLocalName() + " - System Monitor");
+        frame.setSize(400, 350);
+        frame.setLayout(new GridLayout(0, 1));
+        frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+
+        cpuBar = new JProgressBar(0, 100);
+        cpuBar.setStringPainted(true);
+
+        ramBar = new JProgressBar(0, 100);
+        ramBar.setStringPainted(true);
+
+        cpuTempLabel = new JLabel("CPU Temp: N/A");
+        gpuUsageLabel = new JLabel("GPU Usage: N/A");
+        gpuTempLabel = new JLabel("GPU Temp: N/A");
+        pingLabel = new JLabel("Ping: N/A");
+
+        JButton pauseButton = new JButton("Pauză");
+        JButton sendButton = new JButton("Trimite valori");
+
+        pauseButton.addActionListener(e -> paused = !paused);
+        sendButton.addActionListener(e -> updateMetrics());
+
+        frame.add(new JLabel("CPU Usage"));
+        frame.add(cpuBar);
+        frame.add(cpuTempLabel);
+        frame.add(new JLabel("RAM Usage"));
+        frame.add(ramBar);
+        frame.add(gpuUsageLabel);
+        frame.add(gpuTempLabel);
+        frame.add(pingLabel);
+        frame.add(pauseButton);
+        frame.add(sendButton);
+
+        frame.setVisible(true);
+    }
+
+    // ----------------- Trimitere valori -----------------
+    private void sendValuesToMonitor() {
+        ACLMessage msg = new ACLMessage(ACLMessage.INFORM);
+        msg.addReceiver(new jade.core.AID("MonitorAgent", jade.core.AID.ISLOCALNAME));
+        msg.setContent(String.format("%s,%.2f,%.1f,%.2f,%.2f,%.1f,%d",
+                getLocalName(),
+                cpuValue,
+                cpuTempValue,
+                ramValue,
+                gpuLoadValue,
+                gpuTempValue,
+                pingValue
+        ));
+        send(msg);
+    }
+}

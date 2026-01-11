@@ -1,0 +1,129 @@
+package agents;
+
+import jade.core.Agent;
+import jade.lang.acl.ACLMessage;
+import jade.core.behaviours.TickerBehaviour;
+
+import javax.swing.*;
+import java.awt.*;
+import java.net.InetAddress;
+
+import oshi.SystemInfo;
+import oshi.hardware.CentralProcessor;
+import oshi.hardware.GlobalMemory;
+import oshi.hardware.HardwareAbstractionLayer;
+
+public class ServerAgent extends Agent {
+
+    private double cpuValue = 0;
+    private double ramValue = 0;
+    private int pingValue = 0;
+
+    private SystemInfo si;
+    private HardwareAbstractionLayer hal;
+    private CentralProcessor cpu;
+    private GlobalMemory memory;
+    private long[] prevTicks;
+
+    private boolean paused = false;
+
+    @Override
+    protected void setup() {
+        System.out.println(getLocalName() + " pornit.");
+
+        si = new SystemInfo();
+        hal = si.getHardware();
+        cpu = hal.getProcessor();
+        memory = hal.getMemory();
+        prevTicks = cpu.getSystemCpuLoadTicks();
+
+        SwingUtilities.invokeLater(this::createGUI);
+
+        addBehaviour(new TickerBehaviour(this, 2000) {
+            @Override
+            protected void onTick() {
+                if (!paused) {
+                    updateMetrics();
+                    sendValuesToMonitor();
+                }
+            }
+        });
+    }
+
+    private void updateMetrics() {
+        // CPU real
+        cpuValue = cpu.getSystemCpuLoadBetweenTicks(prevTicks) * 100;
+        prevTicks = cpu.getSystemCpuLoadTicks();
+
+        // RAM real
+        long totalMem = memory.getTotal();
+        long availableMem = memory.getAvailable();
+        ramValue = ((double)(totalMem - availableMem) / totalMem) * 100;
+
+        // Ping real
+        try {
+            InetAddress addr = InetAddress.getByName("127.0.0.1"); // localhost
+            long start = System.currentTimeMillis();
+            boolean reachable = addr.isReachable(1000);
+            long end = System.currentTimeMillis();
+            pingValue = (int)(end - start);
+        } catch (Exception e) {
+            pingValue = -1;
+        }
+    }
+
+    private void createGUI() {
+        JFrame frame = new JFrame(getLocalName() + " - Server Monitor");
+        frame.setSize(400, 220);
+        frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+        frame.setLayout(new GridLayout(5, 2, 5, 5));
+
+        JLabel cpuLabel = new JLabel("CPU %");
+        JTextField cpuField = new JTextField("0");
+        cpuField.setEditable(false);
+
+        JLabel ramLabel = new JLabel("RAM %");
+        JTextField ramField = new JTextField("0");
+        ramField.setEditable(false);
+
+        JLabel pingLabel = new JLabel("Ping ms");
+        JTextField pingField = new JTextField("0");
+        pingField.setEditable(false);
+
+        JButton pauseButton = new JButton("Pauză");
+        JButton sendButton = new JButton("Trimite valori");
+
+        frame.add(cpuLabel); frame.add(cpuField);
+        frame.add(ramLabel); frame.add(ramField);
+        frame.add(pingLabel); frame.add(pingField);
+        frame.add(pauseButton); frame.add(sendButton);
+
+        frame.setVisible(true);
+
+        // Timer pentru actualizarea GUI
+        new Timer(1000, e -> {
+            cpuField.setText(String.format("%.2f", cpuValue));
+            ramField.setText(String.format("%.2f", ramValue));
+            pingField.setText(String.valueOf(pingValue));
+        }).start();
+
+        // Pauză / Resume
+        pauseButton.addActionListener(e -> {
+            paused = !paused;
+            pauseButton.setText(paused ? "Resume" : "Pauză");
+        });
+
+        // Trimitere instant
+        sendButton.addActionListener(e -> {
+            updateMetrics();
+            sendValuesToMonitor();
+        });
+    }
+
+    private void sendValuesToMonitor() {
+        ACLMessage msg = new ACLMessage(ACLMessage.INFORM);
+        msg.addReceiver(new jade.core.AID("MonitorAgent", jade.core.AID.ISLOCALNAME));
+        msg.setContent(String.format("%.2f,%.2f,%d", cpuValue, ramValue, pingValue));
+        send(msg);
+    }
+}

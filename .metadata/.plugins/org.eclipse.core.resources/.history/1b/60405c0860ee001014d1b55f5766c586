@@ -1,0 +1,89 @@
+package agents;
+
+import jade.core.Agent;
+import jade.lang.acl.ACLMessage;
+import jade.core.behaviours.CyclicBehaviour;
+import jade.core.AID;
+
+import javax.swing.*;
+import javax.swing.table.DefaultTableModel;
+import javax.swing.table.DefaultTableCellRenderer;
+import java.awt.*;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+
+public class MonitorAgent extends Agent {
+
+    private DefaultTableModel tableModel;
+    private JTable table;
+
+    @Override
+    protected void setup() {
+        System.out.println(getLocalName() + " pornit.");
+        SwingUtilities.invokeLater(this::createGUI);
+
+        addBehaviour(new CyclicBehaviour() {
+            @Override
+            public void action() {
+                ACLMessage msg = receive();
+                if (msg != null) {
+                    String sender = msg.getSender().getLocalName();
+                    String content = msg.getContent();
+                    String[] values = content.split(",");
+
+                    updateTable(sender, values);
+                    forwardToLogger(sender, values);
+                } else {
+                    block();
+                }
+            }
+        });
+    }
+
+    private void createGUI() {
+        JFrame frame = new JFrame("Monitor Agent");
+        frame.setSize(800, 400);
+        frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+
+        String[] columns = {"Timestamp", "Server", "CPU %", "RAM %", "Ping ms"};
+        tableModel = new DefaultTableModel(columns, 0);
+        table = new JTable(tableModel);
+
+        table.setDefaultRenderer(Object.class, new DefaultTableCellRenderer() {
+            @Override
+            public Component getTableCellRendererComponent(JTable t, Object value,
+                                                           boolean isSelected, boolean hasFocus,
+                                                           int row, int column) {
+                Component c = super.getTableCellRendererComponent(t, value, isSelected, hasFocus, row, column);
+                try {
+                    double cpu = Double.parseDouble(t.getValueAt(row, 2).toString());
+                    double ram = Double.parseDouble(t.getValueAt(row, 3).toString());
+                    if (cpu > 80) c.setBackground(Color.RED);
+                    else if (ram > 80) c.setBackground(Color.ORANGE);
+                    else c.setBackground(Color.WHITE);
+                } catch (Exception e) {
+                    c.setBackground(Color.WHITE);
+                }
+                return c;
+            }
+        });
+
+        table.setRowHeight(25);
+        JScrollPane scrollPane = new JScrollPane(table);
+        frame.add(scrollPane);
+        frame.setVisible(true);
+    }
+
+    private void updateTable(String server, String[] values) {
+        String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("HH:mm:ss"));
+        tableModel.addRow(new Object[]{timestamp, server, values[0], values[1], values[2]});
+        table.repaint();
+    }
+
+    private void forwardToLogger(String server, String[] values) {
+        ACLMessage logMsg = new ACLMessage(ACLMessage.INFORM);
+        logMsg.addReceiver(new AID("LoggerAgent", AID.ISLOCALNAME));
+        logMsg.setContent(server + ": CPU=" + values[0] + " RAM=" + values[1] + " Ping=" + values[2]);
+        send(logMsg);
+    }
+}

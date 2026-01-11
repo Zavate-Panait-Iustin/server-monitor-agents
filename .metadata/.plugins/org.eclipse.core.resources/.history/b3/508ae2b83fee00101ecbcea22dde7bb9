@@ -1,0 +1,148 @@
+package agents;
+
+import jade.core.Agent;
+import jade.lang.acl.ACLMessage;
+import jade.core.behaviours.TickerBehaviour;
+
+import javax.swing.*;
+import java.awt.*;
+import java.net.InetAddress;
+
+import oshi.SystemInfo;
+import oshi.hardware.CentralProcessor;
+import oshi.hardware.GlobalMemory;
+import oshi.hardware.HardwareAbstractionLayer;
+
+public class ServerAgent extends Agent {
+
+    private double cpuValue = 0;
+    private double ramValue = 0;
+    private int pingValue = 0;
+
+    private SystemInfo si;
+    private HardwareAbstractionLayer hal;
+    private CentralProcessor cpu;
+    private GlobalMemory memory;
+    private long[] prevTicks;
+
+    private boolean paused = false;
+
+    private JProgressBar cpuBar;
+    private JProgressBar ramBar;
+    private JTextField pingField;
+
+    @Override
+    protected void setup() {
+        System.out.println(getLocalName() + " pornit.");
+
+        si = new SystemInfo();
+        hal = si.getHardware();
+        cpu = hal.getProcessor();
+        memory = hal.getMemory();
+        prevTicks = cpu.getSystemCpuLoadTicks();
+
+        SwingUtilities.invokeLater(this::createGUI);
+
+        addBehaviour(new TickerBehaviour(this, 2000) {
+            @Override
+            protected void onTick() {
+                if (!paused) {
+                    updateMetrics();
+                    sendValuesToMonitor();
+                }
+            }
+        });
+    }
+
+    private void updateMetrics() {
+        // CPU real
+        cpuValue = cpu.getSystemCpuLoadBetweenTicks(prevTicks) * 100;
+        prevTicks = cpu.getSystemCpuLoadTicks();
+
+        // RAM real
+        long totalMem = memory.getTotal();
+        long availableMem = memory.getAvailable();
+        ramValue = ((double)(totalMem - availableMem) / totalMem) * 100;
+
+        // Ping real
+        try {
+            InetAddress addr = InetAddress.getByName("127.0.0.1"); // localhost
+            long start = System.currentTimeMillis();
+            boolean reachable = addr.isReachable(1000);
+            long end = System.currentTimeMillis();
+            pingValue = (int)(end - start);
+        } catch (Exception e) {
+            pingValue = -1;
+        }
+    }
+
+    private void createGUI() {
+        JFrame frame = new JFrame(getLocalName() + " - Server Monitor");
+        frame.setSize(500, 300);
+        frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+        frame.setLayout(new BorderLayout(10,10));
+
+        // Panel valori
+        JPanel panelValues = new JPanel(new GridLayout(3,2,5,5));
+        JLabel cpuLabel = new JLabel("CPU %");
+        cpuLabel.setFont(new Font("Arial", Font.BOLD, 14));
+        cpuBar = new JProgressBar(0, 100);
+        cpuBar.setStringPainted(true);
+
+        JLabel ramLabel = new JLabel("RAM %");
+        ramLabel.setFont(new Font("Arial", Font.BOLD, 14));
+        ramBar = new JProgressBar(0, 100);
+        ramBar.setStringPainted(true);
+
+        JLabel pingLabel = new JLabel("Ping ms");
+        pingLabel.setFont(new Font("Arial", Font.BOLD, 14));
+        pingField = new JTextField("0");
+        pingField.setEditable(false);
+
+        panelValues.add(cpuLabel); panelValues.add(cpuBar);
+        panelValues.add(ramLabel); panelValues.add(ramBar);
+        panelValues.add(pingLabel); panelValues.add(pingField);
+
+        frame.add(panelValues, BorderLayout.CENTER);
+
+        // Panel butoane
+        JPanel panelButtons = new JPanel(new FlowLayout());
+        JButton pauseButton = new JButton("Pauză");
+        JButton sendButton = new JButton("Trimite valori");
+
+        panelButtons.add(pauseButton);
+        panelButtons.add(sendButton);
+
+        frame.add(panelButtons, BorderLayout.SOUTH);
+
+        frame.setVisible(true);
+
+        // Timer actualizare GUI
+        new Timer(1000, e -> {
+            cpuBar.setValue((int) cpuValue);
+            cpuBar.setString(String.format("%.2f%%", cpuValue));
+            ramBar.setValue((int) ramValue);
+            ramBar.setString(String.format("%.2f%%", ramValue));
+            pingField.setText(String.valueOf(pingValue));
+        }).start();
+
+        // Pauză / Resume
+        pauseButton.addActionListener(e -> {
+            paused = !paused;
+            pauseButton.setText(paused ? "Resume" : "Pauză");
+        });
+
+        // Trimite valori instant
+        sendButton.addActionListener(e -> {
+            updateMetrics();
+            sendValuesToMonitor();
+        });
+    }
+
+    private void sendValuesToMonitor() {
+        ACLMessage msg = new ACLMessage(ACLMessage.INFORM);
+        msg.addReceiver(new jade.core.AID("MonitorAgent", jade.core.AID.ISLOCALNAME));
+        msg.setContent(String.format("%.2f,%.2f,%d", cpuValue, ramValue, pingValue));
+        send(msg);
+    }
+}

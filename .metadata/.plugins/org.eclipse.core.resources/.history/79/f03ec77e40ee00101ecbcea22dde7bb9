@@ -1,0 +1,162 @@
+package agents;
+
+import jade.core.Agent;
+import jade.lang.acl.ACLMessage;
+import jade.core.behaviours.TickerBehaviour;
+
+import javax.swing.*;
+import javax.swing.table.DefaultTableModel;
+import javax.swing.table.DefaultTableCellRenderer;
+import java.awt.*;
+import java.net.InetAddress;
+
+import oshi.SystemInfo;
+import oshi.hardware.CentralProcessor;
+import oshi.hardware.GlobalMemory;
+import oshi.hardware.HardwareAbstractionLayer;
+import oshi.hardware.Sensors;
+
+public class ServerAgent extends Agent {
+
+    private SystemInfo si;
+    private HardwareAbstractionLayer hal;
+    private CentralProcessor cpu;
+    private GlobalMemory memory;
+    private Sensors sensors;
+    private long[] prevTicks;
+
+    private boolean paused = false;
+
+    private JTable table;
+    private DefaultTableModel tableModel;
+
+    @Override
+    protected void setup() {
+        System.out.println(getLocalName() + " pornit.");
+
+        si = new SystemInfo();
+        hal = si.getHardware();
+        cpu = hal.getProcessor();
+        memory = hal.getMemory();
+        sensors = hal.getSensors();
+        prevTicks = cpu.getSystemCpuLoadTicks();
+
+        SwingUtilities.invokeLater(this::createGUI);
+
+        addBehaviour(new TickerBehaviour(this, 2000) {
+            @Override
+            protected void onTick() {
+                if (!paused) {
+                    updateMetrics();
+                    sendValuesToMonitor();
+                }
+            }
+        });
+    }
+
+    private void updateMetrics() {
+        // CPU
+        double cpuLoad = cpu.getSystemCpuLoadBetweenTicks(prevTicks) * 100;
+        prevTicks = cpu.getSystemCpuLoadTicks();
+
+        // RAM
+        long totalMem = memory.getTotal();
+        long availableMem = memory.getAvailable();
+        double ramLoad = ((double)(totalMem - availableMem) / totalMem) * 100;
+
+        // Ping
+        int ping = 0;
+        try {
+            InetAddress addr = InetAddress.getByName("127.0.0.1");
+            long start = System.currentTimeMillis();
+            boolean reachable = addr.isReachable(1000);
+            long end = System.currentTimeMillis();
+            ping = (int)(end - start);
+        } catch (Exception e) {
+            ping = -1;
+        }
+
+        // Temperatura CPU
+        double cpuTemp = sensors.getCpuTemperature();
+
+        // GPU (dacă există, OSHI limitat)
+        double gpuLoad = 0; // dacă nu există senzor GPU, rămâne 0
+        double gpuTemp = 0; // similar
+
+        // Actualizare tabel
+        SwingUtilities.invokeLater(() -> {
+            tableModel.setRowCount(0);
+            tableModel.addRow(new Object[]{
+                    getLocalName(),
+                    String.format("%.2f", cpuLoad),
+                    String.format("%.1f°C", cpuTemp),
+                    String.format("%.2f", ramLoad),
+                    String.format("%.2f", gpuLoad),
+                    String.format("%.1f°C", gpuTemp),
+                    ping
+            });
+        });
+    }
+
+    private void createGUI() {
+        JFrame frame = new JFrame(getLocalName() + " - Task Manager");
+        frame.setSize(800, 250);
+        frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+
+        String[] columns = {"Server", "CPU %", "Temperatura CPU", "RAM %", "GPU %", "Temperatura GPU", "Ping ms"};
+        tableModel = new DefaultTableModel(columns, 0);
+        table = new JTable(tableModel);
+        table.setRowHeight(25);
+
+        // Colorare CPU/RAM
+        table.setDefaultRenderer(Object.class, new DefaultTableCellRenderer() {
+            @Override
+            public Component getTableCellRendererComponent(JTable t, Object value,
+                                                           boolean isSelected, boolean hasFocus,
+                                                           int row, int column) {
+                Component c = super.getTableCellRendererComponent(t, value, isSelected, hasFocus, row, column);
+                try {
+                    double cpu = Double.parseDouble(t.getValueAt(row, 1).toString());
+                    double ram = Double.parseDouble(t.getValueAt(row, 3).toString());
+                    if (cpu > 80) c.setBackground(Color.RED);
+                    else if (ram > 80) c.setBackground(Color.ORANGE);
+                    else c.setBackground(Color.WHITE);
+                } catch (Exception e) {
+                    c.setBackground(Color.WHITE);
+                }
+                return c;
+            }
+        });
+
+        JScrollPane scrollPane = new JScrollPane(table);
+        frame.add(scrollPane, BorderLayout.CENTER);
+
+        JPanel panelButtons = new JPanel(new FlowLayout());
+        JButton pauseButton = new JButton("Pauză");
+        JButton sendButton = new JButton("Trimite valori");
+
+        pauseButton.addActionListener(e -> paused = !paused);
+        sendButton.addActionListener(e -> updateMetrics());
+
+        panelButtons.add(pauseButton);
+        panelButtons.add(sendButton);
+
+        frame.add(panelButtons, BorderLayout.SOUTH);
+
+        frame.setVisible(true);
+    }
+
+    private void sendValuesToMonitor() {
+        ACLMessage msg = new ACLMessage(ACLMessage.INFORM);
+        msg.addReceiver(new jade.core.AID("MonitorAgent", jade.core.AID.ISLOCALNAME));
+
+        // Preluare valori tabel pentru trimitere
+        Object[] row = new Object[7];
+        for (int i = 0; i < 7; i++) row[i] = tableModel.getValueAt(0, i);
+
+        msg.setContent(String.format("%s,%s,%s,%s,%s,%s,%s",
+                row[0], row[1], row[2], row[3], row[4], row[5], row[6]));
+
+        send(msg);
+    }
+}

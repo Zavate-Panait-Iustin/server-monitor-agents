@@ -1,0 +1,6 @@
+public class MainContainer {
+    public static void main(String[] args) {
+        String[] jadeArgs = {"-gui", "TestAgent:TestAgent"};
+        jade.Boot.main(jadeArgs);
+    }
+}

@@ -1,0 +1,10 @@
+package util;
+
+public class MessageUtils {
+
+    // Construiește un mesaj explicit pentru logger
+    public static String buildMetricsMessage(String serverName, double cpu, double ram, int ping) {
+        return String.format("%s | CPU: %.1f%% | RAM: %.1f%% | Ping: %dms",
+                serverName, cpu, ram, ping);
+    }
+}

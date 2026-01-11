@@ -1,0 +1,75 @@
+package agents;
+
+import jade.core.Agent;
+import jade.core.behaviours.CyclicBehaviour;
+import jade.lang.acl.ACLMessage;
+
+import util.MessageUtils;
+
+import javax.swing.*;
+import javax.swing.table.DefaultTableModel;
+import java.awt.*;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+
+public class MonitorAgent extends Agent {
+
+    private DefaultTableModel tableModel;
+
+    @Override
+    protected void setup() {
+        createGUI();
+
+        addBehaviour(new CyclicBehaviour() {
+            public void action() {
+                ACLMessage msg = receive();
+                if (msg != null) {
+                    String[] data =
+                            MessageUtils.parseMetricsMessage(msg.getContent());
+                    addRow(data);
+                    forwardToLogger(data);
+                } else {
+                    block();
+                }
+            }
+        });
+    }
+
+    private void createGUI() {
+        JFrame frame = new JFrame("Central Monitoring Dashboard");
+        frame.setSize(720, 300);
+        frame.setLocationRelativeTo(null);
+
+        tableModel = new DefaultTableModel(
+                new String[]{"Time", "Server", "CPU %", "RAM %", "Ping"}, 0);
+
+        JTable table = new JTable(tableModel);
+        table.setBackground(new Color(30,30,30));
+        table.setForeground(Color.WHITE);
+        table.setGridColor(Color.GRAY);
+
+        JScrollPane scrollPane = new JScrollPane(table);
+        frame.add(scrollPane);
+
+        frame.setVisible(true);
+    }
+
+    private void addRow(String[] d) {
+        tableModel.addRow(new Object[]{
+                LocalDateTime.now()
+                        .format(DateTimeFormatter.ofPattern("HH:mm:ss")),
+                d[0], d[1], d[2], d[3]
+        });
+    }
+
+    private void forwardToLogger(String[] d) {
+        ACLMessage log = new ACLMessage(ACLMessage.INFORM);
+        log.addReceiver(getAID("Logger"));
+        // Format exact: Server 1 | CPU: 42% | RAM: 67% | Ping: 35ms
+        String formatted = String.format("%s | CPU: %s%% | RAM: %s%% | Ping: %sms",
+                d[0], d[1], d[2], d[3]);
+        log.setContent(formatted);
+        send(log);
+    }
+
+}

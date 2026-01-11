@@ -1,0 +1,134 @@
+package agents;
+
+import jade.core.Agent;
+import jade.core.behaviours.TickerBehaviour;
+import jade.lang.acl.ACLMessage;
+
+import util.MessageUtils;
+
+import javax.swing.*;
+import java.awt.*;
+
+import oshi.SystemInfo;
+import oshi.hardware.CentralProcessor;
+import oshi.hardware.GlobalMemory;
+
+public class ServerAgent extends Agent {
+
+    private String serverName;
+    private boolean paused = false;
+
+    private JProgressBar cpuBar;
+    private JProgressBar ramBar;
+    private JLabel pingLabel;
+
+    private CentralProcessor cpu;
+    private GlobalMemory memory;
+    private long[] previousTicks;
+
+    @Override
+    protected void setup() {
+        serverName = (String) getArguments()[0];
+
+        SystemInfo si = new SystemInfo();
+        cpu = si.getHardware().getProcessor();
+        memory = si.getHardware().getMemory();
+        previousTicks = cpu.getSystemCpuLoadTicks();
+
+        createGUI();
+
+        addBehaviour(new TickerBehaviour(this, 2000) {
+            protected void onTick() {
+                if (!paused) collectAndSend();
+            }
+        });
+    }
+
+    private void createGUI() {
+        JFrame frame = new JFrame(serverName + " - Server Monitor");
+        frame.setSize(360, 300);
+        frame.setLocationRelativeTo(null);
+
+        JPanel root = new JPanel();
+        root.setLayout(new BoxLayout(root, BoxLayout.Y_AXIS));
+        root.setBackground(new Color(30, 30, 30));
+        root.setBorder(BorderFactory.createEmptyBorder(15,15,15,15));
+
+        JLabel title = new JLabel(serverName);
+        title.setFont(new Font("Segoe UI", Font.BOLD, 18));
+        title.setForeground(Color.WHITE);
+
+        cpuBar = createProgressBar("CPU Usage");
+        ramBar = createProgressBar("RAM Usage");
+
+        pingLabel = new JLabel("Ping: -- ms");
+        pingLabel.setForeground(Color.WHITE);
+        pingLabel.setFont(new Font("Segoe UI", Font.PLAIN, 14));
+
+        JButton pauseBtn = new JButton("Pause");
+        JButton resumeBtn = new JButton("Resume");
+
+        pauseBtn.addActionListener(e -> paused = true);
+        resumeBtn.addActionListener(e -> paused = false);
+
+        JPanel buttonPanel = new JPanel();
+        buttonPanel.setBackground(new Color(30,30,30));
+        buttonPanel.add(pauseBtn);
+        buttonPanel.add(resumeBtn);
+
+        root.add(title);
+        root.add(Box.createVerticalStrut(10));
+        root.add(cpuBar);
+        root.add(Box.createVerticalStrut(10));
+        root.add(ramBar);
+        root.add(Box.createVerticalStrut(10));
+        root.add(pingLabel);
+        root.add(Box.createVerticalStrut(15));
+        root.add(buttonPanel);
+
+        frame.setContentPane(root);
+        frame.setVisible(true);
+    }
+
+    private JProgressBar createProgressBar(String title) {
+        JProgressBar bar = new JProgressBar(0, 100);
+        bar.setStringPainted(true);
+        bar.setBorder(BorderFactory.createTitledBorder(title));
+        bar.setBackground(Color.DARK_GRAY);
+        bar.setForeground(Color.GREEN);
+        return bar;
+    }
+
+    private void collectAndSend() {
+        double cpuLoad = cpu.getSystemCpuLoadBetweenTicks(previousTicks) * 100;
+        previousTicks = cpu.getSystemCpuLoadTicks();
+
+        double ramLoad = (1.0 -
+                (double) memory.getAvailable() / memory.getTotal()) * 100;
+
+        int ping = 20 + (int)(Math.random() * 40);
+
+        updateGUI(cpuLoad, ramLoad, ping);
+
+        ACLMessage msg = new ACLMessage(ACLMessage.INFORM);
+        msg.addReceiver(getAID("Monitor"));
+        msg.setContent(
+                MessageUtils.buildMetricsMessage(
+                        serverName, cpuLoad, ramLoad, ping
+                )
+        );
+        send(msg);
+    }
+
+    private void updateGUI(double cpu, double ram, int ping) {
+        cpuBar.setValue((int) cpu);
+        ramBar.setValue((int) ram);
+        pingLabel.setText("Ping: " + ping + " ms");
+
+        cpuBar.setForeground(cpu < 60 ? Color.GREEN :
+                cpu < 80 ? Color.ORANGE : Color.RED);
+
+        ramBar.setForeground(ram < 60 ? Color.GREEN :
+                ram < 80 ? Color.ORANGE : Color.RED);
+    }
+}

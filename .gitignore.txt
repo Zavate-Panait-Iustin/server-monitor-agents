@@ -1,0 +1,8 @@
+bin/
+target/
+*.class
+*.log
+.history
+.idea/
+*.iml
+

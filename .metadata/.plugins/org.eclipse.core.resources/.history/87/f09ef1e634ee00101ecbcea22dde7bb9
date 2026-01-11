@@ -1,0 +1,43 @@
+package main;
+
+import jade.core.Profile;
+import jade.core.ProfileImpl;
+import jade.core.Runtime;
+import jade.wrapper.AgentController;
+import jade.wrapper.ContainerController;
+
+public class MainContainer {
+
+    public static void main(String[] args) {
+        try {
+            // Obține instanța runtime JADE
+            Runtime runtime = Runtime.instance();
+
+            // Creează profil standard pentru container principal
+            Profile profile = new ProfileImpl();
+            profile.setParameter(Profile.MAIN, "true");       // este main container
+            profile.setParameter(Profile.GUI, "true");        // pornește GUI JADE
+            profile.setParameter(Profile.LOCAL_HOST, "127.0.0.1"); // host local
+
+            // Creează container-ul principal
+            ContainerController container = runtime.createMainContainer(profile);
+
+            // --- FARA RMA deoarece nu avem jadeTools.jar ---
+            // Lansare MonitorAgent
+            AgentController monitor = container.createNewAgent("MonitorAgent", "agents.MonitorAgent", null);
+            monitor.start();
+
+            // Lansare 2 ServerAgent
+            AgentController server1 = container.createNewAgent("Server1", "agents.ServerAgent", null);
+            server1.start();
+
+            AgentController server2 = container.createNewAgent("Server2", "agents.ServerAgent", null);
+            server2.start();
+
+            System.out.println("Platforma JADE a pornit cu succes!");
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+}

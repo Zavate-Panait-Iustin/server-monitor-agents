@@ -1,0 +1,188 @@
+package agents;
+
+import jade.core.Agent;
+import jade.lang.acl.ACLMessage;
+import jade.core.behaviours.TickerBehaviour;
+
+import javax.swing.*;
+import javax.swing.table.DefaultTableModel;
+import javax.swing.table.DefaultTableCellRenderer;
+import java.awt.*;
+import java.net.InetAddress;
+
+import oshi.SystemInfo;
+import oshi.hardware.CentralProcessor;
+import oshi.hardware.GlobalMemory;
+import oshi.hardware.HardwareAbstractionLayer;
+import oshi.hardware.Sensors;
+
+public class ServerAgent extends Agent {
+
+    // ----------------- Variabile de instanță -----------------
+    private SystemInfo si;
+    private HardwareAbstractionLayer hal;
+    private CentralProcessor cpu;
+    private GlobalMemory memory;
+    private Sensors sensors;
+    private long[] prevTicks;
+
+    private boolean paused = false;
+
+    private JTable table;
+    private DefaultTableModel tableModel;
+
+    // Valorile pentru metrici (variabile de instanță)
+    private double cpuValue = 0;
+    private double ramValue = 0;
+    private int pingValue = 0;
+    private double cpuTempValue = 0;
+    private double gpuLoadValue = 0;
+    private double gpuTempValue = 0;
+
+    // ----------------- Setup agent -----------------
+    @Override
+    protected void setup() {
+        System.out.println(getLocalName() + " pornit.");
+
+        si = new SystemInfo();
+        hal = si.getHardware();
+        cpu = hal.getProcessor();
+        memory = hal.getMemory();
+        sensors = hal.getSensors();
+        prevTicks = cpu.getSystemCpuLoadTicks();
+
+        SwingUtilities.invokeLater(this::createGUI);
+
+        // TickerBehaviour la fiecare 2 secunde
+        addBehaviour(new TickerBehaviour(this, 2000) {
+            @Override
+            protected void onTick() {
+                if (!paused) {
+                    updateMetrics();
+                    sendValuesToMonitor();
+                }
+            }
+        });
+    }
+
+    // ----------------- Metoda pentru actualizare metrici -----------------
+    private void updateMetrics() {
+        // CPU
+        cpuValue = cpu.getSystemCpuLoadBetweenTicks(prevTicks) * 100;
+        prevTicks = cpu.getSystemCpuLoadTicks();
+
+        // RAM
+        long totalMem = memory.getTotal();
+        long availableMem = memory.getAvailable();
+        ramValue = ((double)(totalMem - availableMem) / totalMem) * 100;
+
+        // Ping real
+        try {
+            InetAddress addr = InetAddress.getByName("127.0.0.1");
+            long start = System.currentTimeMillis();
+            boolean reachable = addr.isReachable(1000);
+            long end = System.currentTimeMillis();
+            pingValue = (int)(end - start); // variabila de instanță
+        } catch (Exception e) {
+            pingValue = -1;
+        }
+
+        // Temperatura CPU
+        cpuTempValue = sensors.getCpuTemperature();
+
+        // GPU load/temperature (dacă nu există senzor GPU, rămâne 0)
+        gpuLoadValue = 0;
+        gpuTempValue = 0;
+
+        // Actualizare tabel în GUI
+        SwingUtilities.invokeLater(() -> {
+            tableModel.setRowCount(0); // reset tabel
+            tableModel.addRow(new Object[]{
+                    getLocalName(),
+                    String.format("%.2f", cpuValue),
+                    String.format("%.1f°C", cpuTempValue),
+                    String.format("%.2f", ramValue),
+                    String.format("%.2f", gpuLoadValue),
+                    String.format("%.1f°C", gpuTempValue),
+                    pingValue
+            });
+        });
+    }
+
+    // ----------------- Creare GUI -----------------
+    private void createGUI() {
+        JFrame frame = new JFrame(getLocalName() + " - Task Manager");
+        frame.setSize(800, 250);
+        frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+        frame.setLayout(new BorderLayout());
+
+        String[] columns = {"Server", "CPU %", "Temperatura CPU", "RAM %", "GPU %", "Temperatura GPU", "Ping ms"};
+        tableModel = new DefaultTableModel(columns, 0);
+        table = new JTable(tableModel);
+        table.setRowHeight(25);
+
+        // Colorare rânduri CPU/RAM
+        table.setDefaultRenderer(Object.class, new DefaultTableCellRenderer() {
+            @Override
+            public Component getTableCellRendererComponent(JTable t, Object value,
+                                                           boolean isSelected, boolean hasFocus,
+                                                           int row, int column) {
+                Component c = super.getTableCellRendererComponent(t, value, isSelected, hasFocus, row, column);
+                try {
+                    double cpu = Double.parseDouble(t.getValueAt(row, 1).toString());
+                    double ram = Double.parseDouble(t.getValueAt(row, 3).toString());
+                    if (cpu > 80) c.setBackground(Color.RED);
+                    else if (ram > 80) c.setBackground(Color.ORANGE);
+                    else c.setBackground(Color.WHITE);
+                } catch (Exception e) {
+                    c.setBackground(Color.WHITE);
+                }
+                return c;
+            }
+        });
+
+        JScrollPane scrollPane = new JScrollPane(table);
+        frame.add(scrollPane, BorderLayout.CENTER);
+
+        // Panel butoane
+        JPanel panelButtons = new JPanel(new FlowLayout());
+        JButton pauseButton = new JButton("Pauză");
+        JButton sendButton = new JButton("Trimite valori");
+
+        pauseButton.addActionListener(e -> {
+            paused = !paused;
+            pauseButton.setText(paused ? "Resume" : "Pauză");
+        });
+
+        sendButton.addActionListener(e -> {
+            updateMetrics();
+            sendValuesToMonitor();
+        });
+
+        panelButtons.add(pauseButton);
+        panelButtons.add(sendButton);
+
+        frame.add(panelButtons, BorderLayout.SOUTH);
+
+        frame.setVisible(true);
+    }
+
+    // ----------------- Trimitere valori către MonitorAgent -----------------
+    private void sendValuesToMonitor() {
+        ACLMessage msg = new ACLMessage(ACLMessage.INFORM);
+        msg.addReceiver(new jade.core.AID("MonitorAgent", jade.core.AID.ISLOCALNAME));
+
+        // Trimite valorile curente
+        msg.setContent(String.format("%s,%.2f,%.1f,%.2f,%.2f,%.1f,%d",
+                getLocalName(),
+                cpuValue,
+                cpuTempValue,
+                ramValue,
+                gpuLoadValue,
+                gpuTempValue,
+                pingValue
+        ));
+
+        send(msg);
+    }
+}

@@ -1,0 +1,93 @@
+package agents;
+
+import jade.core.Agent;
+import jade.lang.acl.ACLMessage;
+import jade.core.behaviours.TickerBehaviour;
+
+import javax.swing.*;
+import java.awt.*;
+
+import oshi.SystemInfo;
+import oshi.hardware.CentralProcessor;
+import oshi.hardware.GlobalMemory;
+import oshi.hardware.HardwareAbstractionLayer;
+
+public class ServerAgent extends Agent {
+
+    private double cpuValue = 0;
+    private double ramValue = 0;
+    private int pingValue = 50; // simulare ping
+
+    private SystemInfo si;
+    private HardwareAbstractionLayer hal;
+    private CentralProcessor cpu;
+    private GlobalMemory memory;
+
+    @Override
+    protected void setup() {
+        System.out.println(getLocalName() + " pornit.");
+
+        si = new SystemInfo();
+        hal = si.getHardware();
+        cpu = hal.getProcessor();
+        memory = hal.getMemory();
+
+        SwingUtilities.invokeLater(this::createGUI);
+
+        addBehaviour(new TickerBehaviour(this, 2000) {
+            @Override
+            protected void onTick() {
+                updateMetrics();
+                sendValuesToMonitor();
+            }
+        });
+    }
+
+    private void updateMetrics() {
+        cpuValue = cpu.getSystemCpuLoadBetweenTicks() * 100;
+        long totalMem = memory.getTotal();
+        long availableMem = memory.getAvailable();
+        ramValue = ((double)(totalMem - availableMem) / totalMem) * 100;
+    }
+
+    private void createGUI() {
+        JFrame frame = new JFrame(getLocalName() + " - Resurse reale");
+        frame.setSize(300, 200);
+        frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+        frame.setLayout(new GridLayout(4, 2, 5, 5));
+
+        JLabel cpuLabel = new JLabel("CPU %");
+        JTextField cpuField = new JTextField("0");
+        cpuField.setEditable(false);
+
+        JLabel ramLabel = new JLabel("RAM %");
+        JTextField ramField = new JTextField("0");
+        ramField.setEditable(false);
+
+        JLabel pingLabel = new JLabel("Ping ms");
+        JTextField pingField = new JTextField(String.valueOf(pingValue));
+
+        JButton sendButton = new JButton("Trimite valori");
+
+        frame.add(cpuLabel); frame.add(cpuField);
+        frame.add(ramLabel); frame.add(ramField);
+        frame.add(pingLabel); frame.add(pingField);
+        frame.add(new JLabel()); frame.add(sendButton);
+
+        frame.setVisible(true);
+
+        new Timer(1000, e -> {
+            cpuField.setText(String.format("%.2f", cpuValue));
+            ramField.setText(String.format("%.2f", ramValue));
+        }).start();
+
+        sendButton.addActionListener(e -> sendValuesToMonitor());
+    }
+
+    private void sendValuesToMonitor() {
+        ACLMessage msg = new ACLMessage(ACLMessage.INFORM);
+        msg.addReceiver(new jade.core.AID("MonitorAgent", jade.core.AID.ISLOCALNAME));
+        msg.setContent(String.format("%.2f,%.2f,%d", cpuValue, ramValue, pingValue));
+        send(msg);
+    }
+}

@@ -1,0 +1,102 @@
+package agents;
+
+import jade.core.Agent;
+import jade.lang.acl.ACLMessage;
+import jade.core.behaviours.CyclicBehaviour;
+
+import javax.swing.*;
+import javax.swing.table.DefaultTableModel;
+import javax.swing.table.DefaultTableCellRenderer;
+import java.awt.*;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+
+public class MonitorAgent extends Agent {
+
+    private DefaultTableModel tableModel;
+    private JTable table;
+
+    @Override
+    protected void setup() {
+        System.out.println(getLocalName() + " pornit.");
+        SwingUtilities.invokeLater(this::createGUI);
+
+        addBehaviour(new CyclicBehaviour() {
+            @Override
+            public void action() {
+                ACLMessage msg = receive();
+                if (msg != null) {
+                    String sender = msg.getSender().getLocalName();
+                    String content = msg.getContent();
+                    String[] values = content.split(",");
+
+                    updateTable(sender, values);
+                    saveToHistoryFile(sender, values);
+                } else {
+                    block();
+                }
+            }
+        });
+    }
+
+    private void createGUI() {
+        JFrame frame = new JFrame("Monitor Agent");
+        frame.setSize(450, 300);
+        frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+
+        String[] columns = {"Server", "CPU %", "RAM %", "Ping ms"};
+        tableModel = new DefaultTableModel(columns, 0);
+        table = new JTable(tableModel);
+
+        // Renderer pentru colorare rând CPU > 80%
+        table.setDefaultRenderer(Object.class, new DefaultTableCellRenderer() {
+            @Override
+            public Component getTableCellRendererComponent(JTable t, Object value,
+                                                           boolean isSelected, boolean hasFocus,
+                                                           int row, int column) {
+                Component c = super.getTableCellRendererComponent(t, value, isSelected, hasFocus, row, column);
+                try {
+                    int cpu = Integer.parseInt(t.getValueAt(row, 1).toString());
+                    if (cpu > 80) c.setBackground(Color.RED);
+                    else c.setBackground(Color.WHITE);
+                } catch (Exception e) {
+                    c.setBackground(Color.WHITE);
+                }
+                return c;
+            }
+        });
+
+        table.setRowHeight(25);
+        JScrollPane scrollPane = new JScrollPane(table);
+        frame.add(scrollPane);
+        frame.setVisible(true);
+    }
+
+    private void updateTable(String server, String[] values) {
+        boolean found = false;
+        for (int i = 0; i < tableModel.getRowCount(); i++) {
+            if (tableModel.getValueAt(i, 0).equals(server)) {
+                tableModel.setValueAt(values[0], i, 1);
+                tableModel.setValueAt(values[1], i, 2);
+                tableModel.setValueAt(values[2], i, 3);
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            tableModel.addRow(new Object[]{server, values[0], values[1], values[2]});
+        }
+        table.repaint(); // forțează repaint pentru colorare
+    }
+
+ // în MonitorAgent.java
+    private void forwardToLogger(String server, String[] values) {
+        ACLMessage logMsg = new ACLMessage(ACLMessage.INFORM);
+        logMsg.addReceiver(new jade.core.AID("LoggerAgent", jade.core.AID.ISLOCALNAME));
+        logMsg.setContent(server + ": CPU=" + values[0] + " RAM=" + values[1] + " Ping=" + values[2]);
+        send(logMsg);
+    }
+
+}

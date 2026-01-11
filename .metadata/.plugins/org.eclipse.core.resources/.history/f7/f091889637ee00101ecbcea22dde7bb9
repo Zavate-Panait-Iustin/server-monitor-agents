@@ -1,0 +1,88 @@
+package agents;
+
+import jade.core.Agent;
+import jade.core.AID;
+import jade.lang.acl.ACLMessage;
+import jade.core.behaviours.TickerBehaviour;
+
+import javax.swing.*;
+import java.awt.*;
+
+public class ServerAgent extends Agent {
+
+    private int cpuValue = 50;
+    private int ramValue = 50;
+    private int pingValue = 50;
+
+    @Override
+    protected void setup() {
+        System.out.println(getLocalName() + " pornit.");
+
+        // GUI pe Swing
+        SwingUtilities.invokeLater(this::createGUI);
+
+        // Trimite valori periodic catre MonitorAgent
+        addBehaviour(new TickerBehaviour(this, 2000) {
+            @Override
+            protected void onTick() {
+                sendValuesToMonitor();
+            }
+        });
+    }
+
+    private void createGUI() {
+        JFrame frame = new JFrame(getLocalName() + " - Resurse");
+        frame.setSize(300, 250);
+        frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+        frame.setLayout(new GridLayout(4, 2));
+
+        JLabel cpuLabel = new JLabel("CPU %");
+        JSlider cpuSlider = new JSlider(0, 100, cpuValue);
+        cpuSlider.setMajorTickSpacing(20);
+        cpuSlider.setPaintTicks(true);
+        cpuSlider.setPaintLabels(true);
+
+        JLabel ramLabel = new JLabel("RAM %");
+        JSlider ramSlider = new JSlider(0, 100, ramValue);
+        ramSlider.setMajorTickSpacing(20);
+        ramSlider.setPaintTicks(true);
+        ramSlider.setPaintLabels(true);
+
+        JLabel pingLabel = new JLabel("Ping ms");
+        JTextField pingField = new JTextField(String.valueOf(pingValue));
+
+        JButton sendButton = new JButton("Trimite valori");
+
+        frame.add(cpuLabel);
+        frame.add(cpuSlider);
+        frame.add(ramLabel);
+        frame.add(ramSlider);
+        frame.add(pingLabel);
+        frame.add(pingField);
+        frame.add(new JLabel());
+        frame.add(sendButton);
+
+        frame.setVisible(true);
+
+        // Actualizare valori din GUI
+        cpuSlider.addChangeListener(e -> cpuValue = cpuSlider.getValue());
+        ramSlider.addChangeListener(e -> ramValue = ramSlider.getValue());
+        pingField.addActionListener(e -> {
+            try {
+                pingValue = Integer.parseInt(pingField.getText());
+            } catch (NumberFormatException ex) {
+                pingField.setText(String.valueOf(pingValue));
+            }
+        });
+
+        // Buton trimite valori
+        sendButton.addActionListener(e -> sendValuesToMonitor());
+    }
+
+    private void sendValuesToMonitor() {
+        ACLMessage msg = new ACLMessage(ACLMessage.INFORM);
+        msg.addReceiver(new AID("MonitorAgent", AID.ISLOCALNAME));
+        msg.setContent(cpuValue + "," + ramValue + "," + pingValue);
+        send(msg);
+    }
+}

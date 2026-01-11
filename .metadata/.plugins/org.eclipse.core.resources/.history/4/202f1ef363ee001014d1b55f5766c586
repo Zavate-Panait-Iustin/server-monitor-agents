@@ -1,0 +1,167 @@
+package agents;
+
+import jade.core.Agent;
+import jade.core.behaviours.TickerBehaviour;
+import jade.lang.acl.ACLMessage;
+
+import util.MessageUtils;
+
+import javax.swing.*;
+import java.awt.*;
+
+import oshi.SystemInfo;
+import oshi.hardware.CentralProcessor;
+import oshi.hardware.GlobalMemory;
+
+public class ServerAgent extends Agent {
+
+    private String serverName;
+    private boolean paused = false;
+
+    private CircularProgressBar cpuGauge;
+    private CircularProgressBar ramGauge;
+    private JPanel pingLED;
+
+    private CentralProcessor cpu;
+    private GlobalMemory memory;
+    private long[] previousTicks;
+
+    @Override
+    protected void setup() {
+        serverName = (String) getArguments()[0];
+
+        SystemInfo si = new SystemInfo();
+        cpu = si.getHardware().getProcessor();
+        memory = si.getHardware().getMemory();
+        previousTicks = cpu.getSystemCpuLoadTicks();
+
+        createGUI();
+
+        addBehaviour(new TickerBehaviour(this, 2000) {
+            protected void onTick() {
+                if (!paused) collectAndSend();
+            }
+        });
+    }
+
+    private void createGUI() {
+        JFrame frame = new JFrame(serverName + " - Server Monitor");
+        frame.setSize(400, 400);
+        frame.setLocationRelativeTo(null);
+
+        JPanel root = new JPanel();
+        root.setLayout(new BoxLayout(root, BoxLayout.Y_AXIS));
+        root.setBackground(new Color(30,30,30));
+        root.setBorder(BorderFactory.createEmptyBorder(15,15,15,15));
+
+        JLabel title = new JLabel(serverName);
+        title.setForeground(Color.WHITE);
+        title.setFont(new Font("Segoe UI", Font.BOLD, 18));
+
+        cpuGauge = new CircularProgressBar("CPU Usage");
+        ramGauge = new CircularProgressBar("RAM Usage");
+
+        pingLED = new JPanel();
+        pingLED.setPreferredSize(new Dimension(50, 50));
+        pingLED.setBackground(Color.GRAY);
+
+        JButton pauseBtn = new JButton("Pause");
+        JButton resumeBtn = new JButton("Resume");
+        pauseBtn.addActionListener(e -> paused = true);
+        resumeBtn.addActionListener(e -> paused = false);
+
+        JPanel btnPanel = new JPanel();
+        btnPanel.setBackground(new Color(30,30,30));
+        btnPanel.add(pauseBtn);
+        btnPanel.add(resumeBtn);
+
+        root.add(title);
+        root.add(Box.createVerticalStrut(15));
+        root.add(cpuGauge);
+        root.add(Box.createVerticalStrut(15));
+        root.add(ramGauge);
+        root.add(Box.createVerticalStrut(15));
+        root.add(new JLabel("Ping Status:") {{ setForeground(Color.WHITE); }});
+        root.add(pingLED);
+        root.add(Box.createVerticalStrut(15));
+        root.add(btnPanel);
+
+        frame.setContentPane(root);
+        frame.setVisible(true);
+    }
+
+    private void collectAndSend() {
+        double cpuLoad = cpu.getSystemCpuLoadBetweenTicks(previousTicks) * 100;
+        previousTicks = cpu.getSystemCpuLoadTicks();
+
+        double ramLoad = (1.0 - (double) memory.getAvailable() / memory.getTotal()) * 100;
+
+        int ping = 20 + (int)(Math.random() * 40);
+
+        updateGUI(cpuLoad, ramLoad, ping);
+
+        ACLMessage msg = new ACLMessage(ACLMessage.INFORM);
+        msg.addReceiver(getAID("Monitor"));
+        msg.setContent(MessageUtils.buildMetricsMessage(serverName, cpuLoad, ramLoad, ping));
+        send(msg);
+    }
+
+    private void updateGUI(double cpu, double ram, int ping) {
+        cpuGauge.setValue((int) cpu);
+        ramGauge.setValue((int) ram);
+
+        // LED logic: verde <50, galben <80, rosu >=80
+        if (ping < 50) pingLED.setBackground(Color.GREEN);
+        else if (ping < 80) pingLED.setBackground(Color.ORANGE);
+        else pingLED.setBackground(Color.RED);
+    }
+
+    // ----- CLASA INTERNĂ: CircularProgressBar -----
+    private class CircularProgressBar extends JPanel {
+        private int value = 0;
+        private String title;
+
+        public CircularProgressBar(String title) {
+            this.title = title;
+            setPreferredSize(new Dimension(150,150));
+        }
+
+        public void setValue(int value) {
+            this.value = Math.min(100, Math.max(0, value));
+            repaint();
+        }
+
+        @Override
+        protected void paintComponent(Graphics g) {
+            super.paintComponent(g);
+            Graphics2D g2 = (Graphics2D) g;
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING,
+                    RenderingHints.VALUE_ANTIALIAS_ON);
+
+            int size = Math.min(getWidth(), getHeight()) - 20;
+            int x = (getWidth() - size) / 2;
+            int y = (getHeight() - size) / 2;
+
+            // Background circle
+            g2.setColor(Color.DARK_GRAY);
+            g2.fillOval(x, y, size, size);
+
+            // Arc progress
+            g2.setColor(value < 60 ? Color.GREEN : value < 80 ? Color.ORANGE : Color.RED);
+            g2.fillArc(x, y, size, size, 90, - (int)(3.6*value));
+
+            // Inner circle
+            g2.setColor(new Color(30,30,30));
+            g2.fillOval(x+15, y+15, size-30, size-30);
+
+            // Text
+            g2.setColor(Color.WHITE);
+            g2.setFont(new Font("Segoe UI", Font.BOLD, 14));
+            String text = title + " " + value + "%";
+            FontMetrics fm = g2.getFontMetrics();
+            int tx = (getWidth() - fm.stringWidth(text)) /2;
+            int ty = getHeight()/2 + fm.getHeight()/4;
+            g2.drawString(text, tx, ty);
+        }
+    }
+}

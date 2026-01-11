@@ -1,0 +1,46 @@
+package main;
+
+import jade.core.Profile;
+import jade.core.ProfileImpl;
+import jade.core.Runtime;
+import jade.wrapper.AgentController;
+import jade.wrapper.ContainerController;
+
+public class MainContainer {
+
+    public static void main(String[] args) {
+        try {
+            Runtime runtime = Runtime.instance();
+
+            // Profil container principal
+            Profile profile = new ProfileImpl();
+            profile.setParameter(Profile.MAIN, "true");
+            profile.setParameter(Profile.GUI, "true");
+            profile.setParameter(Profile.LOCAL_HOST, "127.0.0.1");
+            profile.setParameter(Profile.MAIN_PORT, "1200"); // port liber
+
+            ContainerController container = runtime.createMainContainer(profile);
+
+            // Lansare MonitorAgent
+            AgentController monitor = container.createNewAgent("MonitorAgent", "agents.MonitorAgent", null);
+            monitor.start();
+
+            // Lansare 2 ServerAgent
+            AgentController server1 = container.createNewAgent("Server1", "agents.ServerAgent", null);
+            server1.start();
+
+            AgentController server2 = container.createNewAgent("Server2", "agents.ServerAgent", null);
+            server2.start();
+            
+         // LoggerAgent
+            AgentController logger = container.createNewAgent("LoggerAgent", "agents.LoggerAgent", null);
+            logger.start();
+
+
+            System.out.println("Platforma JADE a pornit cu succes pe port 1200!");
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+}

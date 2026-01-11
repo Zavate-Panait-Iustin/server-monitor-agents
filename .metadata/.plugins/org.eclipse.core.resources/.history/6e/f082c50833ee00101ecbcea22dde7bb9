@@ -1,0 +1,41 @@
+package main;
+
+import jade.core.Profile;
+import jade.core.ProfileImpl;
+import jade.core.Runtime;
+import jade.wrapper.AgentController;
+import jade.wrapper.ContainerController;
+
+public class MainContainer {
+
+    public static void main(String[] args) {
+        try {
+            Runtime runtime = Runtime.instance();
+            Profile profile = new ProfileImpl();
+            profile.setParameter(Profile.GUI, "true"); // fereastra JADE GUI
+            ContainerController container = runtime.createMainContainer(profile);
+
+            // RMA - Remote Management Agent (dacă ai jadeTools.jar)
+            try {
+                AgentController rma = container.createNewAgent("rma", "jade.tools.rma.rma", null);
+                rma.start();
+            } catch (Exception e) {
+                System.out.println("RMA nu a putut fi pornit (fără jadeTools.jar)");
+            }
+
+            // Lansare MonitorAgent
+            AgentController monitor = container.createNewAgent("MonitorAgent", "agents.MonitorAgent", null);
+            monitor.start();
+
+            // Lansare 2 ServerAgent
+            AgentController server1 = container.createNewAgent("Server1", "agents.ServerAgent", null);
+            server1.start();
+
+            AgentController server2 = container.createNewAgent("Server2", "agents.ServerAgent", null);
+            server2.start();
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+}
