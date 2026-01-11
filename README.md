@@ -16,8 +16,7 @@ Funcționalități:
 - Tabel cu valori CPU, RAM și Ping
 - Sparkline pentru istoric
 - LED de ping cu valoare exactă
-- Butoane Pause / Resume / Reset History
-- GUI estetic inspirat din MSI Afterburner / AMD Radeon
+- Butoane Pause / Resume
 
  Instalare
 1. Deschide proiectul în Eclipse.
