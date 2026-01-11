@@ -3,8 +3,8 @@
 Aplicație de monitorizare a serverelor(cpu+ram usage) folosind agenți JADE.
 
  Studenți
-- Student 1: Zavate Panait-Iustin
-- Student 2: Gavrilescu Liviu
+- Student #1: Zavate Panait-Iustin
+- Student #2: Gavrilescu Liviu
 
  Descriere
 Această aplicație creează un ecosistem de agenți:
